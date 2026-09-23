@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Drum Loop Sequencer</title>
+  <title>LilDrummr</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -15,7 +15,14 @@
       user-select: none;
       -webkit-user-select: none;
     }
-    h2 { margin: 0 0 16px 0; text-align: center; font-size: 20px; letter-spacing: 0.5px; }
+    h2 { 
+      margin: 0 0 16px 0; 
+      text-align: center; 
+      font-size: 22px; 
+      letter-spacing: 1px;
+      font-weight: 800;
+      color: #60a5fa;
+    }
 
     .panel {
       background: #1a1f2c;
@@ -76,6 +83,13 @@
       cursor: pointer;
     }
 
+    .hint {
+      font-size: 11px;
+      color: #64748b;
+      text-align: center;
+      margin-top: -4px;
+    }
+
     .grid-container {
       background: #1a1f2c;
       border: 1px solid #2d3748;
@@ -96,7 +110,7 @@
       gap: 4px;
     }
     .track-label {
-      width: 70px;
+      width: 78px;
       font-size: 12px;
       font-weight: 700;
       color: #cbd5e1;
@@ -110,16 +124,32 @@
       background: #1e293b;
       flex-shrink: 0;
       cursor: pointer;
+      position: relative;
     }
-    .step-btn.active {
-      background: #3b82f6;
+    /* Full aksent */
+    .step-btn.accent-full {
+      background: #2563eb;
       border-color: #60a5fa;
     }
+    /* Svak aksent / Ghost note */
+    .step-btn.accent-soft {
+      background: #7c3aed;
+      border-color: #a78bfa;
+    }
+    .step-btn.accent-soft::after {
+      content: "•";
+      color: #fff;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 16px;
+    }
+
     .step-btn.current {
       box-shadow: 0 0 0 2px #facc15;
       filter: brightness(1.3);
     }
-    /* Visuelt skille mellom hver takt/gruppe */
     .step-btn.beat-divider {
       margin-left: 8px;
       border-left: 2px solid #64748b;
@@ -127,7 +157,7 @@
   </style>
 </head>
 <body>
-  <h2>Drum Sequencer</h2>
+  <h2>LilDrummr</h2>
 
   <div class="panel">
     <div class="row-controls">
@@ -163,6 +193,7 @@
       <button id="playBtn" class="play-btn">Start Loop</button>
       <button id="toggleTomsBtn" class="toms-btn">+ Toms</button>
     </div>
+    <div class="hint">Tap = Full hit | Hold = Ghost note (soft)</div>
   </div>
 
   <div class="grid-container">
@@ -172,18 +203,13 @@
   <script>
     let audioCtx = null;
     function getAudioContext() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
       return audioCtx;
     }
 
-    // Kraftige analog-stil synthesizere med 100% pålitelighet offline/mobil
     function createNoiseBuffer(ctx) {
-      const bufferSize = ctx.sampleRate * 1.5;
+      const bufferSize = ctx.sampleRate * 2.0;
       const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {
@@ -193,8 +219,9 @@
     }
 
     let noiseBuffer = null;
+    let openHiHatGain = null; // Brukes til å kvele (choke) åpen hihat når lukket hihat spilles
 
-    function playSound(type) {
+    function playSound(type, velocity = 1.0) {
       const ctx = getAudioContext();
       const t = ctx.currentTime;
       if (!noiseBuffer) noiseBuffer = createNoiseBuffer(ctx);
@@ -204,7 +231,7 @@
         const gain = ctx.createGain();
         osc.frequency.setValueAtTime(140, t);
         osc.frequency.exponentialRampToValueAtTime(32, t + 0.28);
-        gain.gain.setValueAtTime(1.0, t);
+        gain.gain.setValueAtTime(1.0 * velocity, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -212,26 +239,24 @@
         osc.stop(t + 0.3);
       } 
       else if (type === 'Snare') {
-        // Tonal body
         const osc = ctx.createOscillator();
         const oscGain = ctx.createGain();
         osc.frequency.setValueAtTime(180, t);
         osc.frequency.exponentialRampToValueAtTime(50, t + 0.12);
-        oscGain.gain.setValueAtTime(0.6, t);
+        oscGain.gain.setValueAtTime(0.6 * velocity, t);
         oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
         osc.connect(oscGain);
         oscGain.connect(ctx.destination);
         osc.start(t);
         osc.stop(t + 0.12);
 
-        // Noise snap
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuffer;
         const filter = ctx.createBiquadFilter();
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(800, t);
         const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.8, t);
+        noiseGain.gain.setValueAtTime(0.8 * velocity, t);
         noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
         noise.connect(filter);
         filter.connect(noiseGain);
@@ -240,19 +265,42 @@
         noise.stop(t + 0.18);
       } 
       else if (type === 'HiHat') {
+        // Choke eventuell åpen hihat som ringer ut
+        if (openHiHatGain) {
+          openHiHatGain.gain.cancelScheduledValues(t);
+          openHiHatGain.gain.setValueAtTime(openHiHatGain.gain.value, t);
+          openHiHatGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        }
+
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuffer;
         const filter = ctx.createBiquadFilter();
         filter.type = 'highpass';
-        filter.frequency.setValueAtTime(7000, t);
+        filter.frequency.setValueAtTime(7500, t);
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.5, t);
+        gain.gain.setValueAtTime(0.55 * velocity, t);
         gain.gain.exponentialRampToValueAtTime(0.005, t + 0.05);
         noise.connect(filter);
         filter.connect(gain);
         gain.connect(ctx.destination);
         noise.start(t);
         noise.stop(t + 0.05);
+      }
+      else if (type === 'Open HH') {
+        const noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(6500, t);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.55 * velocity, t);
+        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.4);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        noise.start(t);
+        noise.stop(t + 0.4);
+        openHiHatGain = gain;
       }
       else if (type === 'Ride') {
         const noise = ctx.createBufferSource();
@@ -262,7 +310,7 @@
         filter.frequency.setValueAtTime(5000, t);
         filter.Q.setValueAtTime(4, t);
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.4, t);
+        gain.gain.setValueAtTime(0.4 * velocity, t);
         gain.gain.exponentialRampToValueAtTime(0.005, t + 0.5);
         noise.connect(filter);
         filter.connect(gain);
@@ -277,7 +325,7 @@
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(2500, t);
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.7, t);
+        gain.gain.setValueAtTime(0.7 * velocity, t);
         gain.gain.exponentialRampToValueAtTime(0.005, t + 0.9);
         noise.connect(filter);
         filter.connect(gain);
@@ -295,7 +343,7 @@
         const gain = ctx.createGain();
         osc.frequency.setValueAtTime(baseFreq * 1.5, t);
         osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.2);
-        gain.gain.setValueAtTime(0.8, t);
+        gain.gain.setValueAtTime(0.8 * velocity, t);
         gain.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -304,14 +352,15 @@
       }
     }
 
-    // Oppsett for spor og taktart
-    const baseTracks = ['Crash', 'Ride', 'HiHat', 'Snare', 'Kick'];
+    const baseTracks = ['Crash', 'Ride', 'Open HH', 'HiHat', 'Snare', 'Kick'];
     const tomTracks = ['High Tom', 'Mid Tom', 'Low Tom'];
     let showToms = false;
 
     let stepsPerBeat = 4;
     let bars = 4;
     let totalSteps = 16;
+    
+    // pattern lagrer aksent: 0 = av, 1 = full aksent (100%), 2 = svak aksent (35%)
     let pattern = {};
     let isPlaying = false;
     let currentStep = 0;
@@ -319,7 +368,7 @@
 
     function getActiveTracks() {
       if (showToms) {
-        return ['Crash', 'Ride', 'HiHat', 'High Tom', 'Mid Tom', 'Low Tom', 'Snare', 'Kick'];
+        return ['Crash', 'Ride', 'Open HH', 'HiHat', 'High Tom', 'Mid Tom', 'Low Tom', 'Snare', 'Kick'];
       }
       return baseTracks;
     }
@@ -329,10 +378,10 @@
       const tracks = getActiveTracks();
       tracks.forEach(track => {
         if (!pattern[track]) {
-          pattern[track] = Array(totalSteps).fill(false);
+          pattern[track] = Array(totalSteps).fill(0);
         } else {
           const old = pattern[track];
-          pattern[track] = Array.from({ length: totalSteps }, (_, i) => old[i] || false);
+          pattern[track] = Array.from({ length: totalSteps }, (_, i) => old[i] || 0);
         }
       });
     }
@@ -353,20 +402,55 @@
 
         for (let i = 0; i < totalSteps; i++) {
           const btn = document.createElement('button');
-          btn.className = `step-btn ${pattern[track][i] ? 'active' : ''}`;
+          btn.className = 'step-btn';
           
-          // Visuelt skille ved starten av hver takt/beat (unntatt første trinn)
+          const val = pattern[track][i];
+          if (val === 1) btn.classList.add('accent-full');
+          if (val === 2) btn.classList.add('accent-soft');
+
           if (i > 0 && i % stepsPerBeat === 0) {
             btn.classList.add('beat-divider');
           }
 
           btn.dataset.track = track;
           btn.dataset.step = i;
-          btn.onclick = () => {
+
+          // Håndtering av hold / tap
+          let pressTimer = null;
+          let isLongPress = false;
+
+          const startPress = (e) => {
             getAudioContext();
-            pattern[track][i] = !pattern[track][i];
-            btn.classList.toggle('active');
+            isLongPress = false;
+            pressTimer = setTimeout(() => {
+              isLongPress = true;
+              // Hold = sett svak aksent (ghost note)
+              pattern[track][i] = 2;
+              btn.className = 'step-btn accent-soft' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
+              playSound(track, 0.35);
+              if (navigator.vibrate) navigator.vibrate(25);
+            }, 350);
           };
+
+          const endPress = (e) => {
+            clearTimeout(pressTimer);
+            if (!isLongPress) {
+              // Kort tap
+              if (pattern[track][i] === 0) {
+                pattern[track][i] = 1;
+                btn.className = 'step-btn accent-full' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
+                playSound(track, 1.0);
+              } else {
+                pattern[track][i] = 0;
+                btn.className = 'step-btn' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
+              }
+            }
+          };
+
+          btn.addEventListener('pointerdown', startPress);
+          btn.addEventListener('pointerup', endPress);
+          btn.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
           row.appendChild(btn);
         }
         grid.appendChild(row);
@@ -380,9 +464,9 @@
 
       const tracks = getActiveTracks();
       tracks.forEach(track => {
-        if (pattern[track]?.[currentStep]) {
-          playSound(track);
-        }
+        const val = pattern[track]?.[currentStep];
+        if (val === 1) playSound(track, 1.0);
+        else if (val === 2) playSound(track, 0.35);
       });
 
       currentStep = (currentStep + 1) % totalSteps;
@@ -394,9 +478,8 @@
       }
     }
 
-    // Playback-knapp
     document.getElementById('playBtn').onclick = () => {
-      const ctx = getAudioContext();
+      getAudioContext();
       isPlaying = !isPlaying;
       const btn = document.getElementById('playBtn');
 
@@ -413,7 +496,6 @@
       }
     };
 
-    // Toggle Toms
     document.getElementById('toggleTomsBtn').onclick = () => {
       getAudioContext();
       showToms = !showToms;
@@ -422,12 +504,10 @@
       renderGrid();
     };
 
-    // Tempo slider
     document.getElementById('bpm').oninput = (e) => {
       document.getElementById('bpmLabel').textContent = e.target.value;
     };
 
-    // Taktart-velger
     document.getElementById('timeSignature').onchange = (e) => {
       const val = e.target.value;
       const customField = document.getElementById('customField');
@@ -450,7 +530,6 @@
       renderGrid();
     };
 
-    // Antall takter (Bars)
     document.getElementById('barsCount').onchange = (e) => {
       bars = parseInt(e.target.value, 10);
       currentStep = 0;
@@ -458,7 +537,6 @@
       renderGrid();
     };
 
-    // Initial oppstart
     updateTotalSteps();
     renderGrid();
   </script>
