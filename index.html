@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Trommemaskin</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #121212;
+      color: #fff;
+      padding: 16px;
+      margin: 0;
+      user-select: none;
+    }
+    h2 { margin-top: 0; text-align: center; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+      background: #1e1e1e;
+      padding: 14px;
+      border-radius: 8px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 110px;
+    }
+    label { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+    input {
+      padding: 8px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 8px;
+    }
+    button.play-btn {
+      flex: 2;
+      background: #2563eb;
+      color: #fff;
+      font-weight: bold;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    button.play-btn.playing { background: #dc2626; }
+    button.toms-btn {
+      flex: 1;
+      background: #374151;
+      color: #fff;
+      font-weight: bold;
+      padding: 12px;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 12px;
+    }
+    .row { display: flex; align-items: center; gap: 6px; }
+    .track-name { width: 75px; font-weight: bold; font-size: 13px; flex-shrink: 0; }
+    .step-btn {
+      width: 36px;
+      height: 44px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #222;
+      flex-shrink: 0;
+    }
+    .step-btn.active { background: #2563eb; }
+    .step-btn.current { border-color: #facc15; box-shadow: 0 0 8px #facc15; }
+    .status { font-size: 12px; color: #888; text-align: center; margin-top: 6px; width: 100%; }
+  </style>
+</head>
+<body>
+  <h2>Trommemaskin</h2>
+
+  <div class="controls">
+    <div class="field">
+      <label>Tempo: <span id="bpmVal">120</span> BPM</label>
+      <input type="range" id="bpm" min="40" max="240" value="120">
+    </div>
+    <div class="field">
+      <label>Antall trinn:</label>
+      <input type="number" id="stepsInput" min="1" max="32" value="16">
+    </div>
+    <div class="btn-row">
+      <button id="playBtn" class="play-btn">Start Loop</button>
+      <button id="toggleTomsBtn" class="toms-btn">+ Toms</button>
+    </div>
+    <div id="status" class="status">Klar til bruk</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const baseSampleUrls = {
+      Kick: 'https://s3.amazonaws.com/freecodecamp/drums/RP4_KICK_1.mp3',
+      Snare: 'https://s3.amazonaws.com/freecodecamp/drums/Brk_Snr.mp3',
+      HiHat: 'https://s3.amazonaws.com/freecodecamp/drums/Cev_H2.mp3',
+      Ride: 'https://cdn.jsdelivr.net/gh/Tonejs/audio@master/drum-samples/CR-78/ride.mp3',
+      Crash: 'https://cdn.jsdelivr.net/gh/Tonejs/audio@master/drum-samples/CR-78/crash.mp3'
+    };
+
+    const tomSampleUrls = {
+      'High Tom': 'https://cdn.jsdelivr.net/gh/Tonejs/audio@master/drum-samples/CR-78/hi_tom.mp3',
+      'Mid Tom': 'https://cdn.jsdelivr.net/gh/Tonejs/audio@master/drum-samples/CR-78/mid_tom.mp3',
+      'Low Tom': 'https://cdn.jsdelivr.net/gh/Tonejs/audio@master/drum-samples/CR-78/low_tom.mp3'
+    };
+
+    let sampleUrls = { ...baseSampleUrls };
+    let tracks = Object.keys(sampleUrls);
+    let tomsAdded = false;
+
+    const audioBuffers = {};
+    let numSteps = 16;
+    let pattern = {};
+    let isPlaying = false;
+    let currentStep = 0;
+    let timerId = null;
+
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    async function loadSample(name, url) {
+      if (audioBuffers[name]) return;
+      try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const ctx = getAudioContext();
+        audioBuffers[name] = await ctx.decodeAudioData(arrayBuffer);
+      } catch (err) {
+        console.error(`Feil ved lasting av ${name}:`, err);
+        document.getElementById('status').textContent = `Feil ved henting av ${name}`;
+      }
+    }
+
+    async function loadAllActiveSamples() {
+      document.getElementById('status').textContent = 'Laster samples...';
+      await Promise.all(tracks.map(t => loadSample(t, sampleUrls[t])));
+      document.getElementById('status').textContent = 'Samples klare!';
+    }
+
+    function triggerSample(name) {
+      if (!audioBuffers[name]) return;
+      const ctx = getAudioContext();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffers[name];
+      source.connect(ctx.destination);
+      source.start();
+    }
+
+    function initPattern() {
+      tracks.forEach(track => {
+        if (!pattern[track]) {
+          pattern[track] = Array.from({ length: numSteps }, () => false);
+        } else if (pattern[track].length !== numSteps) {
+          pattern[track] = Array.from({ length: numSteps }, (_, i) => pattern[track][i] || false);
+        }
+      });
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      tracks.forEach(track => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `<span class="track-name">${track}</span>`;
+
+        pattern[track].forEach((active, stepIdx) => {
+          const btn = document.createElement('button');
+          btn.className = `step-btn ${active ? 'active' : ''}`;
+          btn.dataset.track = track;
+          btn.dataset.step = stepIdx;
+          btn.onclick = () => {
+            getAudioContext();
+            pattern[track][stepIdx] = !pattern[track][stepIdx];
+            btn.classList.toggle('active');
+          };
+          row.appendChild(btn);
+        });
+        grid.appendChild(row);
+      });
+    }
+
+    function step() {
+      const prevStep = (currentStep - 1 + numSteps) % numSteps;
+      document.querySelectorAll(`[data-step="${prevStep}"]`).forEach(el => el.classList.remove('current'));
+      document.querySelectorAll(`[data-step="${currentStep}"]`).forEach(el => el.classList.add('current'));
+
+      tracks.forEach(track => {
+        if (pattern[track]?.[currentStep]) triggerSample(track);
+      });
+
+      currentStep = (currentStep + 1) % numSteps;
+
+      const bpm = parseInt(document.getElementById('bpm').value, 10);
+      const interval = (60 / bpm / 4) * 1000;
+      if (isPlaying) timerId = setTimeout(step, interval);
+    }
+
+    document.getElementById('playBtn').onclick = async () => {
+      getAudioContext();
+      await loadAllActiveSamples();
+
+      isPlaying = !isPlaying;
+      const btn = document.getElementById('playBtn');
+      if (isPlaying) {
+        btn.textContent = 'Stopp Loop';
+        btn.classList.add('playing');
+        step();
+      } else {
+        btn.textContent = 'Start Loop';
+        btn.classList.remove('playing');
+        clearTimeout(timerId);
+        document.querySelectorAll('.current').forEach(el => el.classList.remove('current'));
+        currentStep = 0;
+      }
+    };
+
+    document.getElementById('toggleTomsBtn').onclick = async () => {
+      getAudioContext();
+      tomsAdded = !tomsAdded;
+      const btn = document.getElementById('toggleTomsBtn');
+
+      if (tomsAdded) {
+        btn.textContent = '- Fjern toms';
+        sampleUrls = { ...baseSampleUrls, ...tomSampleUrls };
+      } else {
+        btn.textContent = '+ Toms';
+        sampleUrls = { ...baseSampleUrls };
+      }
+
+      tracks = Object.keys(sampleUrls);
+      initPattern();
+      renderGrid();
+
+      if (tomsAdded) {
+        await loadAllActiveSamples();
+      }
+    };
+
+    document.getElementById('bpm').oninput = (e) => {
+      document.getElementById('bpmVal').textContent = e.target.value;
+    };
+
+    document.getElementById('stepsInput').onchange = (e) => {
+      numSteps = Math.max(1, parseInt(e.target.value, 10) || 16);
+      initPattern();
+      renderGrid();
+    };
+
+    initPattern();
+    renderGrid();
+  </script>
+</body>
+</html>
