@@ -57,30 +57,39 @@
 
     .btn-group {
       display: flex;
-      gap: 10px;
+      gap: 8px;
     }
     button.play-btn {
       flex: 2;
       background: #2563eb;
       color: #fff;
       font-weight: 700;
-      padding: 12px;
+      padding: 12px 8px;
       border: none;
       border-radius: 6px;
-      font-size: 15px;
+      font-size: 14px;
       cursor: pointer;
     }
     button.play-btn.playing { background: #dc2626; }
-    button.toms-btn {
+    button.secondary-btn {
       flex: 1;
       background: #334155;
       color: #fff;
       font-weight: 600;
-      padding: 12px;
+      padding: 12px 6px;
       border: 1px solid #475569;
       border-radius: 6px;
       font-size: 13px;
       cursor: pointer;
+    }
+    button.clear-btn {
+      background: #3f1d24;
+      border-color: #831843;
+      color: #fca5a5;
+    }
+    button.clear-btn:active {
+      background: #991b1b;
+      color: #fff;
     }
 
     .hint {
@@ -126,12 +135,10 @@
       cursor: pointer;
       position: relative;
     }
-    /* Full aksent */
     .step-btn.accent-full {
       background: #2563eb;
       border-color: #60a5fa;
     }
-    /* Svak aksent / Ghost note */
     .step-btn.accent-soft {
       background: #7c3aed;
       border-color: #a78bfa;
@@ -191,7 +198,8 @@
 
     <div class="btn-group">
       <button id="playBtn" class="play-btn">Start Loop</button>
-      <button id="toggleTomsBtn" class="toms-btn">+ Toms</button>
+      <button id="toggleTomsBtn" class="secondary-btn">+ Toms</button>
+      <button id="clearBtn" class="secondary-btn clear-btn">Clear</button>
     </div>
     <div class="hint">Tap = Full hit | Hold = Ghost note (soft)</div>
   </div>
@@ -201,6 +209,24 @@
   </div>
 
   <script>
+    // Nøyaktige stier til filene dine i samples/
+    const sampleFiles = {
+      'Crash': 'samples/crash.wav',
+      'Ride': 'samples/ride.wav',
+      'Open HH': 'samples/hhOp.wav',
+      'HiHat': 'samples/hhCl.wav',
+      'Snare': 'samples/snare.wav',
+      'Kick': 'samples/kick.wav',
+      'High Tom': 'samples/tom1.wav',
+      'Mid Tom': 'samples/tom2.wav',
+      'Low Tom': 'samples/tom3.wav'
+    };
+
+    const audioBuffers = {};
+    let samplesLoaded = false;
+    let openHiHatSource = null;
+    let openHiHatGain = null;
+
     let audioCtx = null;
     function getAudioContext() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -208,159 +234,57 @@
       return audioCtx;
     }
 
-    function createNoiseBuffer(ctx) {
-      const bufferSize = ctx.sampleRate * 2.0;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
-      return buffer;
-    }
+    async function preloadSamples() {
+      if (samplesLoaded) return;
+      const ctx = getAudioContext();
 
-    let noiseBuffer = null;
-    let openHiHatGain = null; // Brukes til å kvele (choke) åpen hihat når lukket hihat spilles
+      for (const [track, path] of Object.entries(sampleFiles)) {
+        try {
+          const res = await fetch(path);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            audioBuffers[track] = await ctx.decodeAudioData(buf);
+          }
+        } catch (e) {
+          console.warn(`Kunne ikke laste ${path}:`, e);
+        }
+      }
+      samplesLoaded = true;
+    }
 
     function playSound(type, velocity = 1.0) {
       const ctx = getAudioContext();
       const t = ctx.currentTime;
-      if (!noiseBuffer) noiseBuffer = createNoiseBuffer(ctx);
 
-      if (type === 'Kick') {
-        const osc = ctx.createOscillator();
+      // Hvis lukket HiHat trigges, kutt åpen HiHat umiddelbart
+      if (type === 'HiHat' && openHiHatGain) {
+        openHiHatGain.gain.cancelScheduledValues(t);
+        openHiHatGain.gain.setValueAtTime(openHiHatGain.gain.value, t);
+        openHiHatGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+      }
+
+      if (audioBuffers[type]) {
+        const src = ctx.createBufferSource();
+        src.buffer = audioBuffers[type];
         const gain = ctx.createGain();
-        osc.frequency.setValueAtTime(140, t);
-        osc.frequency.exponentialRampToValueAtTime(32, t + 0.28);
-        gain.gain.setValueAtTime(1.0 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-        osc.connect(gain);
+        gain.gain.setValueAtTime(velocity, t);
+        src.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + 0.3);
-      } 
-      else if (type === 'Snare') {
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        osc.frequency.setValueAtTime(180, t);
-        osc.frequency.exponentialRampToValueAtTime(50, t + 0.12);
-        oscGain.gain.setValueAtTime(0.6 * velocity, t);
-        oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
-        osc.connect(oscGain);
-        oscGain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + 0.12);
+        src.start(t);
 
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'highpass';
-        filter.frequency.setValueAtTime(800, t);
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.8 * velocity, t);
-        noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
-        noise.connect(filter);
-        filter.connect(noiseGain);
-        noiseGain.connect(ctx.destination);
-        noise.start(t);
-        noise.stop(t + 0.18);
-      } 
-      else if (type === 'HiHat') {
-        // Choke eventuell åpen hihat som ringer ut
-        if (openHiHatGain) {
-          openHiHatGain.gain.cancelScheduledValues(t);
-          openHiHatGain.gain.setValueAtTime(openHiHatGain.gain.value, t);
-          openHiHatGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        if (type === 'Open HH') {
+          openHiHatGain = gain;
         }
-
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'highpass';
-        filter.frequency.setValueAtTime(7500, t);
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.55 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.05);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(t);
-        noise.stop(t + 0.05);
-      }
-      else if (type === 'Open HH') {
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'highpass';
-        filter.frequency.setValueAtTime(6500, t);
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.55 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.4);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(t);
-        noise.stop(t + 0.4);
-        openHiHatGain = gain;
-      }
-      else if (type === 'Ride') {
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.setValueAtTime(5000, t);
-        filter.Q.setValueAtTime(4, t);
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.4 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.5);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(t);
-        noise.stop(t + 0.5);
-      }
-      else if (type === 'Crash') {
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'highpass';
-        filter.frequency.setValueAtTime(2500, t);
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.7 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.005, t + 0.9);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(t);
-        noise.stop(t + 0.9);
-      }
-      else if (type.includes('Tom')) {
-        let baseFreq = 90;
-        if (type === 'High Tom') baseFreq = 160;
-        if (type === 'Mid Tom') baseFreq = 120;
-        if (type === 'Low Tom') baseFreq = 80;
-
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.setValueAtTime(baseFreq * 1.5, t);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.2);
-        gain.gain.setValueAtTime(0.8 * velocity, t);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + 0.25);
       }
     }
 
     const baseTracks = ['Crash', 'Ride', 'Open HH', 'HiHat', 'Snare', 'Kick'];
-    const tomTracks = ['High Tom', 'Mid Tom', 'Low Tom'];
     let showToms = false;
 
     let stepsPerBeat = 4;
     let bars = 4;
     let totalSteps = 16;
     
-    // pattern lagrer aksent: 0 = av, 1 = full aksent (100%), 2 = svak aksent (35%)
     let pattern = {};
     let isPlaying = false;
     let currentStep = 0;
@@ -415,16 +339,15 @@
           btn.dataset.track = track;
           btn.dataset.step = i;
 
-          // Håndtering av hold / tap
           let pressTimer = null;
           let isLongPress = false;
 
-          const startPress = (e) => {
+          const startPress = () => {
             getAudioContext();
+            preloadSamples();
             isLongPress = false;
             pressTimer = setTimeout(() => {
               isLongPress = true;
-              // Hold = sett svak aksent (ghost note)
               pattern[track][i] = 2;
               btn.className = 'step-btn accent-soft' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
               playSound(track, 0.35);
@@ -432,10 +355,9 @@
             }, 350);
           };
 
-          const endPress = (e) => {
+          const endPress = () => {
             clearTimeout(pressTimer);
             if (!isLongPress) {
-              // Kort tap
               if (pattern[track][i] === 0) {
                 pattern[track][i] = 1;
                 btn.className = 'step-btn accent-full' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
@@ -480,6 +402,7 @@
 
     document.getElementById('playBtn').onclick = () => {
       getAudioContext();
+      preloadSamples();
       isPlaying = !isPlaying;
       const btn = document.getElementById('playBtn');
 
@@ -498,9 +421,18 @@
 
     document.getElementById('toggleTomsBtn').onclick = () => {
       getAudioContext();
+      preloadSamples();
       showToms = !showToms;
-      document.getElementById('toggleTomsBtn').textContent = showToms ? '- Remove Toms' : '+ Toms';
+      document.getElementById('toggleTomsBtn').textContent = showToms ? '- Toms' : '+ Toms';
       updateTotalSteps();
+      renderGrid();
+    };
+
+    document.getElementById('clearBtn').onclick = () => {
+      const tracks = getActiveTracks();
+      tracks.forEach(track => {
+        pattern[track] = Array(totalSteps).fill(0);
+      });
       renderGrid();
     };
 
