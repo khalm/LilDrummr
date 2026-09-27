@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>LilDrummr</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="android-pwa-192.png">
+  <meta name="theme-color" content="#0f1117">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -119,7 +122,7 @@
       gap: 4px;
     }
     .track-label {
-      width: 78px;
+      width: 82px;
       font-size: 12px;
       font-weight: 700;
       color: #cbd5e1;
@@ -209,22 +212,20 @@
   </div>
 
   <script>
-    // Nøyaktige stier til filene dine i samples/
     const sampleFiles = {
-      'Crash': 'samples/crash.wav',
-      'Ride': 'samples/ride.wav',
-      'Open HH': 'samples/hhOp.wav',
-      'HiHat': 'samples/hhCl.wav',
-      'Snare': 'samples/snare.wav',
       'Kick': 'samples/kick.wav',
-      'High Tom': 'samples/tom1.wav',
-      'Mid Tom': 'samples/tom2.wav',
-      'Low Tom': 'samples/tom3.wav'
+      'Snare': 'samples/snare.wav',
+      'HatClosed': 'samples/hhCl.wav',
+      'HatOpen': 'samples/hhOp.wav',
+      'Ride': 'samples/ride.wav',
+      'Crash': 'samples/crash.wav',
+      'Tom1': 'samples/tom1.wav',
+      'Tom2': 'samples/tom2.wav',
+      'Tom3': 'samples/tom3.wav'
     };
 
     const audioBuffers = {};
     let samplesLoaded = false;
-    let openHiHatSource = null;
     let openHiHatGain = null;
 
     let audioCtx = null;
@@ -246,7 +247,7 @@
             audioBuffers[track] = await ctx.decodeAudioData(buf);
           }
         } catch (e) {
-          console.warn(`Kunne ikke laste ${path}:`, e);
+          console.warn(`Could not load ${path}:`, e);
         }
       }
       samplesLoaded = true;
@@ -256,8 +257,7 @@
       const ctx = getAudioContext();
       const t = ctx.currentTime;
 
-      // Hvis lukket HiHat trigges, kutt åpen HiHat umiddelbart
-      if (type === 'HiHat' && openHiHatGain) {
+      if (type === 'HatClosed' && openHiHatGain) {
         openHiHatGain.gain.cancelScheduledValues(t);
         openHiHatGain.gain.setValueAtTime(openHiHatGain.gain.value, t);
         openHiHatGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
@@ -272,13 +272,14 @@
         gain.connect(ctx.destination);
         src.start(t);
 
-        if (type === 'Open HH') {
+        if (type === 'HatOpen') {
           openHiHatGain = gain;
         }
       }
     }
 
-    const baseTracks = ['Crash', 'Ride', 'Open HH', 'HiHat', 'Snare', 'Kick'];
+    const baseTracks = ['Kick', 'Snare', 'HatClosed', 'HatOpen', 'Ride', 'Crash'];
+    const tomTracks = ['Tom1', 'Tom2', 'Tom3'];
     let showToms = false;
 
     let stepsPerBeat = 4;
@@ -291,10 +292,7 @@
     let timerId = null;
 
     function getActiveTracks() {
-      if (showToms) {
-        return ['Crash', 'Ride', 'Open HH', 'HiHat', 'High Tom', 'Mid Tom', 'Low Tom', 'Snare', 'Kick'];
-      }
-      return baseTracks;
+      return showToms ? [...baseTracks, ...tomTracks] : baseTracks;
     }
 
     function updateTotalSteps() {
