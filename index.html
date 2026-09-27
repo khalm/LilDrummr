@@ -224,6 +224,13 @@
       'Tom3': 'samples/tom3.wav'
     };
 
+    // Halved default volume base for cymbals/hats
+    const trackBaseGain = {
+      'HatClosed': 0.5,
+      'HatOpen': 0.5,
+      'Ride': 0.5
+    };
+
     const audioBuffers = {};
     let samplesLoaded = false;
     let openHiHatGain = null;
@@ -253,9 +260,16 @@
       samplesLoaded = true;
     }
 
-    function playSound(type, velocity = 1.0) {
+    function getTrackGain(track, velocityMode) {
+      const base = trackBaseGain[track] ?? 1.0;
+      // Normal hit: 100% of base; Soft/ghost hit: 50% of base
+      return velocityMode === 2 ? base * 0.5 : base;
+    }
+
+    function playSound(type, velocityMode = 1) {
       const ctx = getAudioContext();
       const t = ctx.currentTime;
+      const effectiveGain = getTrackGain(type, velocityMode);
 
       if (type === 'HatClosed' && openHiHatGain) {
         openHiHatGain.gain.cancelScheduledValues(t);
@@ -267,7 +281,7 @@
         const src = ctx.createBufferSource();
         src.buffer = audioBuffers[type];
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(velocity, t);
+        gain.gain.setValueAtTime(effectiveGain, t);
         src.connect(gain);
         gain.connect(ctx.destination);
         src.start(t);
@@ -348,7 +362,7 @@
               isLongPress = true;
               pattern[track][i] = 2;
               btn.className = 'step-btn accent-soft' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
-              playSound(track, 0.35);
+              playSound(track, 2);
               if (navigator.vibrate) navigator.vibrate(25);
             }, 350);
           };
@@ -359,7 +373,7 @@
               if (pattern[track][i] === 0) {
                 pattern[track][i] = 1;
                 btn.className = 'step-btn accent-full' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
-                playSound(track, 1.0);
+                playSound(track, 1);
               } else {
                 pattern[track][i] = 0;
                 btn.className = 'step-btn' + (i > 0 && i % stepsPerBeat === 0 ? ' beat-divider' : '');
@@ -385,8 +399,9 @@
       const tracks = getActiveTracks();
       tracks.forEach(track => {
         const val = pattern[track]?.[currentStep];
-        if (val === 1) playSound(track, 1.0);
-        else if (val === 2) playSound(track, 0.35);
+        if (val === 1 || val === 2) {
+          playSound(track, val);
+        }
       });
 
       currentStep = (currentStep + 1) % totalSteps;
