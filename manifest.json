@@ -1,8 +1,10 @@
 {
+  "id": "/LilDrummr/",
   "name": "LilDrummr",
   "short_name": "LilDrummr",
   "description": "Drum machine and sequencer for songwriting",
-  "start_url": "./index.html",
+  "start_url": "/LilDrummr/",
+  "scope": "/LilDrummr/",
   "display": "standalone",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
