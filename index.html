@@ -6,7 +6,10 @@
   <title>LilDrummr</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="android-pwa-192.png">
+  <link rel="apple-touch-icon" href="android-playstore-512.png">
   <meta name="theme-color" content="#0f1117">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -224,7 +227,6 @@
       'Tom3': 'samples/tom3.wav'
     };
 
-    // Halved default volume base for cymbals/hats
     const trackBaseGain = {
       'HatClosed': 0.5,
       'HatOpen': 0.5,
@@ -262,7 +264,6 @@
 
     function getTrackGain(track, velocityMode) {
       const base = trackBaseGain[track] ?? 1.0;
-      // Normal hit: 100% of base; Soft/ghost hit: 50% of base
       return velocityMode === 2 ? base * 0.5 : base;
     }
 
