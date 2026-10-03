@@ -21,14 +21,32 @@
       user-select: none;
       -webkit-user-select: none;
     }
+    
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
     h2 { 
-      margin: 0 0 16px 0; 
-      text-align: center; 
+      margin: 0; 
       font-size: 22px; 
       letter-spacing: 1px;
       font-weight: 800;
       color: #60a5fa;
     }
+    .install-btn {
+      background: #10b981;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: none; /* Vises automatisk når Chrome tillater install */
+    }
+    .install-btn:active { background: #059669; }
 
     .panel {
       background: #1a1f2c;
@@ -170,7 +188,10 @@
   </style>
 </head>
 <body>
-  <h2>LilDrummr</h2>
+  <div class="header-row">
+    <h2>LilDrummr</h2>
+    <button id="installAppBtn" class="install-btn">📲 Install App</button>
+  </div>
 
   <div class="panel">
     <div class="row-controls">
@@ -215,6 +236,43 @@
   </div>
 
   <script>
+    // 1. Service Worker for PWA compliance (tillater offisiell app-installering)
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        self.addEventListener('install', e => self.skipWaiting());
+        self.addEventListener('activate', e => clients.claim());
+        self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+      `;
+      const blob = new Blob([swCode], { type: 'text/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+    }
+
+    // 2. Install App-knapp logikk
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('installAppBtn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.style.display = 'block';
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        installBtn.style.display = 'none';
+      }
+      deferredPrompt = null;
+    });
+
+    window.addEventListener('appinstalled', () => {
+      installBtn.style.display = 'none';
+      deferredPrompt = null;
+    });
+
+    // 3. Audio & Sequencer
     const sampleFiles = {
       'Kick': 'samples/kick.wav',
       'Snare': 'samples/snare.wav',
